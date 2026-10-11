@@ -77,8 +77,8 @@ function update() {
 
   player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
 
-  shootCD--;
-  if (mouse.down && shootCD <= 0) { shoot(); shootCD = 12; }
+  player.shootCD--;
+  if (mouse.down && player.shootCD <= 0) { shoot(); player.shootCD = 12; }
   if (invuln > 0) invuln--;
   if (flash > 0) flash--;
 
