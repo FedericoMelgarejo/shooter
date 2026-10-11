@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Shooter Cenital</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;overflow:hidden;font-family:sans-serif}
+  canvas{display:block;margin:auto;background:#1c2230;cursor:crosshair}
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="600"></canvas>
+<script>
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+
+const player = { x: W/2, y: H/2, r: 14, speed: 3.5, hp: 3, angle: 0, shootCD: 0 };
+const keys = {}, bullets = [], enemies = [];
+let score = 0, kills = 0, ability = 0, gameOver = false;
+const ABILITY_MAX = 20;   // enemigos necesarios para cargar la habilidad
+let spawnTimer = 0, invuln = 0;
+
+let mouse = { x: W/2, y: 0, down: false };
+
+addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key.toLowerCase() === 'q') useAbility();
+});
+addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect();
+  mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
+});
+cv.addEventListener('mousedown', () => mouse.down = true);
+cv.addEventListener('mouseup', () => mouse.down = false);
+addEventListener('click', () => { if (gameOver) restart(); });
+
+function restart() {
+  player.x = W/2; player.y = H/2; player.hp = 3;
+  bullets.length = enemies.length = 0;
+  score = 0; kills = 0; ability = 0; gameOver = false; invuln = 60;
+}
+
+function spawnEnemy() {
+  const side = Math.floor(Math.random()*4);
+  let x, y;
+  if (side === 0) { x = -20; y = Math.random()*H; }
+  else if (side === 1) { x = W+20; y = Math.random()*H; }
+  else if (side === 2) { y = -20; x = Math.random()*W; }
+  else { y = H+20; x = Math.random()*W; }
+  enemies.push({ x, y, r: 13, speed: 1 + Math.random()*0.8 + Math.min(kills*0.01, 1.5) });
+}
+
+function shoot() {
+  bullets.push({ x: player.x, y: player.y, vx: Math.cos(player.angle)*8, vy: Math.sin(player.angle)*8, r: 4 });
+}
+
+function useAbility() {
+  if (gameOver || ability < ABILITY_MAX) return;
+  ability = 0;
+  // Onda expansiva: elimina todos los enemigos en pantalla
+  enemies.length = 0;
+  score += 0; // no dan puntos extra, limpia la pantalla
+  flash = 20;
+}
+
+let flash = 0;
+
+function update() {
+  if (gameOver) return;
+  // Movimiento
+  let dx = (keys['d']||keys['arrowright']?1:0) - (keys['a']||keys['arrowleft']?1:0);
+  let dy = (keys['s']||keys['arrowdown']?1:0) - (keys['w']||keys['arrowup']?1:0);
+  if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  player.x = Math.min(W-player.r, Math.max(player.r, player.x + dx*player.speed));
+  player.y = Math.min(H-player.r, Math.max(player.r, player.y + dy*player.speed));
+
+  player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+
+  shootCD--;
+  if (mouse.down && shootCD <= 0) { shoot(); shootCD = 12; }
+  if (invuln > 0) invuln--;
+  if (flash > 0) flash--;
+
+  // Spawn progresivo
+  spawnTimer--;
+  if (spawnTimer <= 0) { spawnEnemy(); spawnTimer = Math.max(15, 70 - score*0.1); }
+
+  // Balas
+  for (let i = bullets.length-1; i >= 0; i--) {
+    const b = bullets[i];
+    b.x += b.vx; b.y += b.vy;
+    if (b.x < -10 || b.x > W+10 || b.y < -10 || b.y > H+10) bullets.splice(i, 1);
+  }
+
+  // Enemigos
+  for (let i = enemies.length-1; i >= 0; i--) {
+    const e = enemies[i];
+    const ang = Math.atan2(player.y - e.y, player.x - e.x);
+    e.x += Math.cos(ang)*e.speed;
+    e.y += Math.sin(ang)*e.speed;
+
+    // Colisión con balas
+    for (let j = bullets.length-1; j >= 0; j--) {
+      const b = bullets[j];
+      if (Math.hypot(e.x-b.x, e.y-b.y) < e.r + b.r) {
+        bullets.splice(j, 1); enemies.splice(i, 1);
+        score += 10; kills++;
+        if (ability < ABILITY_MAX) ability++;
+        i--; break;
+      }
+    }
+    if (i < 0) continue;
+
+    // Colisión con el jugador
+    if (invuln === 0 && Math.hypot(e.x-player.x, e.y-player.y) < e.r + player.r) {
+      enemies.splice(i, 1);
+      player.hp--; invuln = 60;
+      if (player.hp <= 0) gameOver = true;
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Rejilla de fondo
+  ctx.strokeStyle = '#252d3d';
+  for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  if (flash > 0) { ctx.fillStyle = `rgba(150,200,255,${flash/40})`; ctx.fillRect(0,0,W,H); }
+
+  // Balas
+  ctx.fillStyle = '#ffd24a';
+  bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); });
+
+  // Enemigos
+  ctx.fillStyle = '#e04a4a';
+  enemies.forEach(e => { ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, 7); ctx.fill(); });
+
+  // Jugador
+  if (!(invuln > 0 && Math.floor(invuln/4)%2)) {
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+    ctx.fillStyle = '#4ac0ff';
+    ctx.beginPath(); ctx.arc(0, 0, player.r, 0, 7); ctx.fill();
+    ctx.fillStyle = '#8be0ff';
+    ctx.fillRect(player.r-2, -3, 12, 6); // "cañón"
+    ctx.restore();
+  }
+
+  // Mira
+  ctx.strokeStyle = '#fff';
+  ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 6, 0, 7); ctx.stroke();
+
+  // HUD
+  ctx.fillStyle = '#fff';
+  ctx.font = '18px sans-serif';
+  ctx.fillText('Puntos: ' + score, 12, 26);
+  ctx.fillText('Vida: ' + '❤'.repeat(Math.max(player.hp,0)), 12, 50);
+
+  // Barra de habilidad
+  ctx.strokeStyle = '#888'; ctx.strokeRect(12, 62, 160, 14);
+  ctx.fillStyle = ability >= ABILITY_MAX ? '#7dff5e' : '#3a8fd8';
+  ctx.fillRect(12, 62, 160 * (ability / ABILITY_MAX), 14);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(ability >= ABILITY_MAX ? '[Q] ¡Habilidad lista!' : 'Habilidad (mata para cargar)', 12, 94);
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+    ctx.font = '40px sans-serif';
+    ctx.fillText('GAME OVER', W/2, H/2 - 20);
+    ctx.font = '22px sans-serif';
+    ctx.fillText('Puntuación: ' + score, W/2, H/2 + 18);
+    ctx.fillText('Haz clic para reiniciar', W/2, H/2 + 52);
+    ctx.textAlign = 'left';
+  }
+}
+
+(function loop() { update(); draw(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
